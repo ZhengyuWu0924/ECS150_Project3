@@ -7,21 +7,111 @@
 #include "disk.h"
 #include "fs.h"
 
-/* TODO: Phase 1 */
+#define FAT_EOC 0xFFFF
+
+struct SuperBlock{
+	uint64_t SIGNATURE;
+	uint16_t TOTAL_BLOCKS_COUNTS;
+	uint16_t ROOT_DIRECTORY_BLOCK;
+	uint16_t DATA_BLOCK;
+	uint16_t DATA_BLOCK_COUNT;
+	uint8_t FAT_BLOCK_COUNT;
+	uint8_t PADDING[4079];
+};
+
+// struct Fat{
+// 	// uint16_t ENTRIES[FS_FILENAME_LEN];
+// 	// uint8_t FAT_INDEX; // datablock start index
+// 	uint16_t *FAT;
+// };
+
+struct RootDirectory{
+	uint8_t FILENAME[FS_FILENAME_LEN];
+	uint32_t FILE_SIZE;
+	uint16_t FILE_FIRST_BLOCK;
+	uint8_t FILE_PADDING[10];
+};
+uint16_t *FAT;
+struct SuperBlock super_block;
+struct RootDirectory root_directory;
+int disk_opened;
+int memFree(void){
+	free(FAT);
+	free((void*)&super_block);
+	free((void*)&root_directory);
+	return 0;
+}
 
 int fs_mount(const char *diskname)
 {
-	/* TODO: Phase 1 */
+	int disk_opened = block_disk_open(diskname);
+	if(disk_opened == -1){
+		perror("Fail to open disk");
+		return -1;
+	}
+	block_read(0, (void*)&super_block);
+	// block_read(sizeof(super_block), (void*)&super_block);
+	if(strcmp(super_block.SIGNATURE, "ECS150FS") != 0){
+		perror("Signature False");
+		return -1;
+	}
+	if(super_block.DATA_BLOCK_COUNT != block_disk_count()){
+		perror("COUNT DIFFERENT\n");
+		return -1;
+	}
+	// Initialize Root_directory
+	block_read(super_block.ROOT_DIRECTORY_BLOCK, (void*)&root_directory);
+	// so far skip the root directory testing, do it later.
+	// Initialize FAT
+	FAT = malloc(sizeof(super_block.DATA_BLOCK_COUNT));
+	FAT[0] = FAT_EOC;
+	for(int i = 1; i < super_block.DATA_BLOCK_COUNT; i++){
+		FAT[i] = 0;
+	}
+
+	
+	return 0;
 }
 
 int fs_umount(void)
 {
-	/* TODO: Phase 1 */
+	int write = block_write(sizeof(super_block), (void*)&super_block);
+	if(write == -1){
+		perror("FAIL TO WRITE\n");
+		return -1;
+	}
+
+	int closeFlag = block_disk_close();
+	if(closeFlag == -1){
+		return -1;
+	}
+	int freeFlag = memFree();
+	if(freeFlag != 0){
+		return -1;
+	}
+	return 0;
 }
 
 int fs_info(void)
 {
-	/* TODO: Phase 1 */
+	if(disk_opened == -1){ //no underlying virtual disk was opened
+		return -1;
+	}
+	printf("FS Info:\n");
+	printf("total_blk_count=%d\n", super_block.TOTAL_BLOCKS_COUNTS);
+	printf("fat_blk_count=%d\n",super_block.FAT_BLOCK_COUNT);
+	printf("rdir_blk=%d\n",super_block.ROOT_DIRECTORY_BLOCK);
+	printf("data_blk=%d\n",super_block.DATA_BLOCK);
+	printf("data_blk_count=%d\n",super_block.DATA_BLOCK_COUNT);
+	int fatFreeCounter = 0;
+	for(int i = 0; i < super_block.DATA_BLOCK_COUNT; i++){
+		if(FAT[i] == 0){
+			fatFreeCounter++;
+		}
+	}
+	printf("fat_free_ratio=%d/%d\n",fatFreeCounter,super_block.DATA_BLOCK_COUNT);
+	printf("rdir_free_ratio=%d/%d\n",root_directory.FILE_SIZE,FS_FILE_MAX_COUNT);
+	return 0;
 }
 
 int fs_create(const char *filename)
