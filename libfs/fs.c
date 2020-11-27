@@ -25,16 +25,22 @@ struct SuperBlock{
 // 	uint16_t *FAT;
 // };
 
-struct RootDirectory{
+struct file {
 	uint8_t FILENAME[FS_FILENAME_LEN];
 	uint32_t FILE_SIZE;
 	uint16_t FILE_FIRST_BLOCK;
 	uint8_t FILE_PADDING[10];
 };
+
+struct RootDirectory{
+	struct file all_files[FS_FILE_MAX_COUNT];
+};
+
 uint16_t *FAT;
 struct SuperBlock super_block;
 struct RootDirectory root_directory;
 int disk_opened;
+
 int memFree(void){
 	free(FAT);
 	free((void*)&super_block);
@@ -114,19 +120,128 @@ int fs_info(void)
 	return 0;
 }
 
+/**
+ * fs_create - Create a new file
+ * @filename: File name
+ *
+ * Create a new and empty file named @filename in the root directory of the
+ * mounted file system. String @filename must be NULL-terminated and its total
+ * length cannot exceed %FS_FILENAME_LEN characters (including the NULL
+ * character).
+ *
+ * Return: -1 if @filename is invalid, if a file named @filename already exists,
+ * or if string @filename is too long, or if the root directory already contains
+ * %FS_FILE_MAX_COUNT files. 0 otherwise.
+ */
 int fs_create(const char *filename)
 {
-	/* TODO: Phase 2 */
-}
+	
+	int file_length = strlen(filename);
+	if (filename[file_length] != '\0' || file_length > FS_FILENAME_LEN) {
+		return -1;
+	}
 
+	// If file already exists
+	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
+		if (strcmp(filename, root_directory.all_files[i]) == 0) { 
+			return -1;
+		}
+	}
+
+	// If the root directory already contains FS_FILE_MAX_COUNT files
+	int root_directory_length = strlen(root_directory.all_files);
+	if (root_directory_length >= FS_FILE_MAX_COUNT) {
+		return -1;
+	}
+	
+	struct file new_file;
+	int new_file_index;
+	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
+		if (strcmp(root_directory.all_files[i].FILENAME, "") == 0) {
+			//strcpy(root_directory.all_files[i].FILENAME, filename);
+			new_file_index = i;
+			break;
+		}
+	}
+
+	strcpy(root_directory.all_files[new_file_index].FILENAME, filename);
+	root_directory.all_files[new_file_index].FILE_SIZE = 0;
+	root_directory.all_files[new_file_index].FILE_FIRST_BLOCK = FAT_EOC;
+
+	//FAT[new_file_index] = FAT_EOC;
+
+	return 0;
+
+}
+/**
+ * fs_delete - Delete a file
+ * @filename: File name
+ *
+ * Delete the file named @filename from the root directory of the mounted file
+ * system.
+ *
+ * Return: -1 if @filename is invalid, if there is no file named @filename to
+ * delete, or if file @filename is currently open. 0 otherwise.
+ */
 int fs_delete(const char *filename)
 {
-	/* TODO: Phase 2 */
+	if (filename == NULL) {
+		return -1;
+	}
+
+	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
+		if (strcmp(filename, root_directory.all_files[i]) != 0) { 
+			return -1;
+		}
+	}
+
+	// TO DO: if file @filename is currently open
+
+	int file_index;
+	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
+		if (strcmp(root_directory.all_files[i].FILENAME, filename) == 0) {
+			file_index = i;
+			break;
+		}
+	}
+
+	uint16_t fat_index = root_directory.all_files[file_index].FILE_FIRST_BLOCK;
+	uint16_t temp_fat_index;
+	while (FAT[fat_index] != FAT_EOC) {
+		temp_fat_index = FAT[fat_index];
+		FAT[fat_index] = 0;
+		fat_index = temp_fat_index;
+	}
+
+	strcpy(root_directory.all_files[file_index].FILENAME, "");
+	root_directory.all_files[file_index].FILE_SIZE = 0;
+
+	return 0;
 }
+
+/**
+ * fs_ls - List files on file system
+ *
+ * List information about the files located in the root directory.
+ *
+ * Return: -1 if no underlying virtual disk was opened. 0 otherwise.
+ */
 
 int fs_ls(void)
 {
-	/* TODO: Phase 2 */
+	if(disk_opened == -1){ //no underlying virtual disk was opened
+		return -1;
+	}
+
+	printf("FS Ls:\n");
+
+	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
+		if (strcmp(root_directory.all_files[i].FILENAME, "") != 0) { // If filename is not empty, then print contents
+			printf("name %s, size %d, first_data_block %d\n", root_directory.all_files[i].FILENAME, 
+			root_directory.all_files[i].FILE_SIZE ,root_directory.all_files[i].FILE_FIRST_BLOCK);
+		}
+	}
+
 }
 
 int fs_open(const char *filename)
