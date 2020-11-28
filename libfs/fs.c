@@ -68,11 +68,13 @@ int fs_mount(const char *diskname)
 	// Initialize Root_directory
 	block_read(super_block.ROOT_DIRECTORY_BLOCK, (void*)&root_directory);
 	// so far skip the root directory testing, do it later.
-	// Initialize FAT
+	
+	// Initialize FAT (UPDATE: we don't just put in all zeros, we have to use block_read() I think...)
 	FAT = malloc(sizeof(super_block.FAT_BLOCK_COUNT * BLOCK_SIZE));
 	FAT[0] = FAT_EOC;
 	for(int i = 1; i < super_block.FAT_BLOCK_COUNT; i++){
-		FAT[i] = 0;
+		//FAT[i] = 0;
+		block_read(i, (void*)&FAT[i]);
 	}
 
 	
