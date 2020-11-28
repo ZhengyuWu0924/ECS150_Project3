@@ -36,10 +36,17 @@ struct RootDirectory{
 	struct file all_files[FS_FILE_MAX_COUNT];
 };
 
+struct file_desc{
+	struct file* cur_file;
+	int offset;
+};
+
 uint16_t *FAT;
 struct SuperBlock super_block;
 struct RootDirectory root_directory;
+struct file_desc *fd_table[FS_OPEN_MAX_COUNT];
 int disk_opened;
+int current_open_amount;
 
 int memFree(void){
 	free(FAT);
@@ -48,6 +55,8 @@ int memFree(void){
 	return 0;
 }
 
+
+//=====
 int fs_mount(const char *diskname)
 {
 	int disk_opened = block_disk_open(diskname);
@@ -117,8 +126,9 @@ int fs_info(void)
 			fatFreeCounter++;
 		}
 	}
+	int root_directory_cur_size = sizeof(root_directory.all_files) / sizeof(root_directory.all_files[0]);
 	printf("fat_free_ratio=%d/%d\n",fatFreeCounter,super_block.DATA_BLOCK_COUNT);
-	printf("rdir_free_ratio=%d/%d\n",root_directory.FILE_SIZE,FS_FILE_MAX_COUNT);
+	printf("rdir_free_ratio=%d/%d\n",root_directory_cur_size,FS_FILE_MAX_COUNT);
 	return 0;
 }
 
@@ -145,7 +155,7 @@ int fs_create(const char *filename)
 
 	// If file already exists
 	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
-		if (strcmp(filename, root_directory.all_files[i]) == 0) { 
+		if (strcmp(filename, root_directory.all_files[i].FILENAME) == 0) { 
 			return -1;
 		}
 	}
@@ -192,7 +202,7 @@ int fs_delete(const char *filename)
 	}
 
 	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
-		if (strcmp(filename, root_directory.all_files[i]) != 0) { 
+		if (strcmp(filename, root_directory.all_files[i].FILENAME) != 0) { 
 			return -1;
 		}
 	}
@@ -246,24 +256,105 @@ int fs_ls(void)
 
 }
 
+
 int fs_open(const char *filename)
 {
-	/* TODO: Phase 3 */
+	// filename invalid
+	int file_length = strlen(filename);
+	if (filename[file_length] != '\0' || file_length > FS_FILENAME_LEN) {
+		return -1;
+	}
+	// no filename to open
+	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
+		if(strcmp(root_directory.all_files[i].FILENAME, filename) != 0){
+			return -1;
+		}
+	}
+	// max count
+	if(current_open_amount == FS_OPEN_MAX_COUNT){
+		return -1;
+	}
+	// =========
+	// struct file* target_file = malloc(sizeof(struct file));
+	struct file_desc* temp_file_desc = malloc(sizeof(struct file_desc));
+	int fd_table_index;
+	//fd_table
+	//find file from root_directory
+	//parse file from root to fd_table[i]
+	//set file offset in fd_table to 0
+	//currentopenamount++
+	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
+		if(strcmp(root_directory.all_files[i].FILENAME, filename) == 0){
+			temp_file_desc->cur_file = &(root_directory.all_files[i]);
+			temp_file_desc->offset = 0;
+			current_open_amount++;
+			break;
+		}
+	}
+	
+	for(int j = 0; j < FS_OPEN_MAX_COUNT; j++){
+		if(strcmp(fd_table[j], NULL) == 0){ //first empty position
+			fd_table[j] = temp_file_desc;
+			fd_table_index = j;
+			break;
+		}
+	}
+	free(temp_file_desc);
+	//return i of fd_table[i]
+	return fd_table_index;
 }
 
 int fs_close(int fd)
 {
-	/* TODO: Phase 3 */
+	// fd invalid out of bounds
+	if(fd >= FS_OPEN_MAX_COUNT){
+		return -1;
+	}
+	// not currently open
+	if(strcmp(fd_table[fd], NULL) == 0){
+		return -1;
+	}
+	// file close
+	// set fd_table[fd] = NULL
+	fd_table[fd] = NULL;
+	// open amount--
+	current_open_amount--;
+	return 0;
 }
 
 int fs_stat(int fd)
 {
-	/* TODO: Phase 3 */
+	// fd invalid out of bounds
+	if(fd >= FS_OPEN_MAX_COUNT){
+		return -1;
+	}
+	// not currently open
+	if(strcmp(fd_table[fd], NULL) == 0){
+		return -1;
+	}
+	uint32_t cur_file_size;
+	cur_file_size = fd_table[fd]->cur_file->FILE_SIZE;
+	//retur current size of file
+	return cur_file_size;
 }
 
 int fs_lseek(int fd, size_t offset)
 {
-	/* TODO: Phase 3 */
+	// fd invalid out of bounds
+	if(fd >= FS_OPEN_MAX_COUNT){
+		return -1;
+	}
+	// not currently open
+	if(strcmp(fd_table[fd], NULL) == 0){
+		return -1;
+	}
+	// offset larger than current file size
+	if(offset > fd_table[fd]->cur_file->FILE_SIZE){
+		return -1;
+	}
+	// set the file offset
+	fd_table[fd]->offset = offset;
+	return 0;
 }
 
 int fs_write(int fd, void *buf, size_t count)
