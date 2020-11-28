@@ -69,9 +69,9 @@ int fs_mount(const char *diskname)
 	block_read(super_block.ROOT_DIRECTORY_BLOCK, (void*)&root_directory);
 	// so far skip the root directory testing, do it later.
 	// Initialize FAT
-	FAT = malloc(sizeof(super_block.DATA_BLOCK_COUNT));
+	FAT = malloc(sizeof(super_block.FAT_BLOCK_COUNT * BLOCK_SIZE));
 	FAT[0] = FAT_EOC;
-	for(int i = 1; i < super_block.DATA_BLOCK_COUNT; i++){
+	for(int i = 1; i < super_block.FAT_BLOCK_COUNT; i++){
 		FAT[i] = 0;
 	}
 
@@ -157,7 +157,7 @@ int fs_create(const char *filename)
 	struct file new_file;
 	int new_file_index;
 	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
-		if (strcmp(root_directory.all_files[i].FILENAME, "") == 0) {
+		if (root_directory.all_files[i].FILENAME[0] == '\0') {
 			//strcpy(root_directory.all_files[i].FILENAME, filename);
 			new_file_index = i;
 			break;
