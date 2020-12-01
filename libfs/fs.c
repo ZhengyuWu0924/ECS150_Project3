@@ -361,9 +361,62 @@ int fs_write(int fd, void *buf, size_t count)
 {
 	/* TODO: Phase 4 */
 }
-
+/**
+ * fs_read - Read from a file
+ * @fd: File descriptor
+ * @buf: Data buffer to be filled with data
+ * @count: Number of bytes of data to be read
+ *
+ * Attempt to read @count bytes of data from the file referenced by file
+ * descriptor @fd into buffer pointer by @buf. It is assumed that @buf is large
+ * enough to hold at least @count bytes.
+ *
+ * The number of bytes read can be smaller than @count if there are less than
+ * @count bytes until the end of the file (it can even be 0 if the file offset
+ * is at the end of the file). The file offset of the file descriptor is
+ * implicitly incremented by the number of bytes that were actually read.
+ *
+ * Return: -1 if file descriptor @fd is invalid (out of bounds or not currently
+ * open). Otherwise return the number of bytes actually read.
+ */
 int fs_read(int fd, void *buf, size_t count)
 {
-	/* TODO: Phase 4 */
+	size_t ret;
+	// fd invalid out of bounds
+	if(fd >= FS_OPEN_MAX_COUNT){
+		return -1;
+	}
+	// not currently open
+	if(strcmp(fd_table[fd], NULL) == 0){
+		return -1;
+	}
+	struct file_desc *cur_file_desc = fd_table[fd]; //file & offset
+	// Most IDEAL CASE
+	// file is exactly in one block
+	// which means the file is a block
+	if(count == BLOCK_SIZE && cur_file_desc->cur_file->FILE_SIZE == BLOCK_SIZE){
+		block_read(cur_file_desc->cur_file->FILE_FIRST_BLOCK, buf);
+		ret = cur_file_desc->cur_file->FILE_SIZE;
+	}
+	// IDEAL CASE
+	// file takes mutiple blocks (large file)
+	// only read one of the blocks
+	// offset is exactly at the beginning of the block
+	/// offset / block_size + 1
+	// index of the block
+	int start_block_num = (cur_file_desc->offset / BLOCK_SIZE) + 1; // assume 3, for example
+	uint16_t file_start_block_ind = cur_file_desc->cur_file->FILE_FIRST_BLOCK;
+	uint16_t cur_index = start_block_num;
+	for(int i = 1; i < start_block_num; i++){
+		cur_index = FAT[cur_index]; 
+	}
+	uint16_t target_index = super_block.DATA_BLOCK + cur_index;
+	block_read(target_index, buf);
+	ret = BLOCK_SIZE;
+	// if(cur_file_desc->offset % BLOCK_SIZE == 0 || count == BLOCK_SIZE){
+	// }
+
+
+	return ret;
 }
 
