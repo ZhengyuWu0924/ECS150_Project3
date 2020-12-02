@@ -10,12 +10,12 @@
 #define FAT_EOC 0xFFFF
 
 struct SuperBlock{
-	uint64_t SIGNATURE;
-	uint16_t TOTAL_BLOCKS_COUNTS;
-	uint16_t ROOT_DIRECTORY_BLOCK;
-	uint16_t DATA_BLOCK;
-	uint16_t DATA_BLOCK_COUNT;
-	uint8_t FAT_BLOCK_COUNT;
+	uint64_t SIGNATURE; // ECS150
+	uint16_t TOTAL_BLOCKS_COUNTS; // Total # of blocks
+	uint16_t ROOT_DIRECTORY_BLOCK; // Root directory index
+	uint16_t DATA_BLOCK; // First data block index
+	uint16_t DATA_BLOCK_COUNT; // # of data blocks
+	uint8_t FAT_BLOCK_COUNT; // # of FAT blocks
 	uint8_t PADDING[4079];
 };
 
@@ -28,7 +28,7 @@ struct SuperBlock{
 struct file {
 	uint8_t FILENAME[FS_FILENAME_LEN];
 	uint32_t FILE_SIZE;
-	uint16_t FILE_FIRST_BLOCK;
+	uint16_t FILE_FIRST_BLOCK; // Index of the first data block for the file
 	uint8_t FILE_PADDING[10];
 };
 
@@ -357,9 +357,60 @@ int fs_lseek(int fd, size_t offset)
 	return 0;
 }
 
+/**
+ * fs_write - Write to a file
+ * @fd: File descriptor
+ * @buf: Data buffer to write in the file
+ * @count: Number of bytes of data to be written
+ *
+ * Attempt to write @count bytes of data from buffer pointer by @buf into the
+ * file referenced by file descriptor @fd. It is assumed that @buf holds at
+ * least @count bytes.
+ *
+ * When the function attempts to write past the end of the file, the file is
+ * automatically extended to hold the additional bytes. If the underlying disk
+ * runs out of space while performing a write operation, fs_write() should write
+ * as many bytes as possible. The number of written bytes can therefore be
+ * smaller than @count (it can even be 0 if there is no more space on disk).
+ *
+ * Return: -1 if file descriptor @fd is invalid (out of bounds or not currently
+ * open). Otherwise return the number of bytes actually written.
+ **/
+
 int fs_write(int fd, void *buf, size_t count)
 {
-	/* TODO: Phase 4 */
+	// Error Management
+	// fd invalid out of bounds
+	if(fd >= FS_OPEN_MAX_COUNT){
+		return -1;
+	}
+	// not currently open
+	if(strcmp(fd_table[fd], NULL) == 0){
+		return -1;
+	}
+
+	/**
+	 * Create bounce (size of BLOCK_SIZE)
+	 * Remaining_bytes = count
+	 * get the file using 'fd'
+	 * if (count > fd->file_size) ==> extend the file
+	 * if (count <= fd->file_size) ==> 
+	 * while (remaining_bytes > 0) {
+	 * 		Case 1: Things to be written is less than block_size
+	 * 			Read from file in the block to the current file offset (from beginning to offset) INTO bounce
+	 * 			Append buffer into bounce (to the end)
+	 * 			block_write (bounce into block)
+	 * 			Pass buffer into bounce
+	 * 
+	 * 		Case 2: Greater than the block
+	 * 			If yes, create new data block, then write the remaining into this new data block
+	 * 			See how many bytes remaining in the block. Then write that many bytes into this block
+	 * 			Detect if memory allows to create a new data block
+	 * 			Update the FAT to link the data blocks
+	 * }
+	 **/
+
+
 }
 /**
  * fs_read - Read from a file
@@ -379,6 +430,18 @@ int fs_write(int fd, void *buf, size_t count)
  * Return: -1 if file descriptor @fd is invalid (out of bounds or not currently
  * open). Otherwise return the number of bytes actually read.
  */
+
+int index_containing_offset (struct file_desc* cur_file_desc) {
+	int start_block_num = (cur_file_desc->offset / BLOCK_SIZE); // assume 3, for example
+	uint16_t file_start_block_ind = cur_file_desc->cur_file->FILE_FIRST_BLOCK;
+	uint16_t cur_index = start_block_num;
+	for(int i = 1; i < start_block_num; i++){
+		cur_index = FAT[cur_index]; 
+	}
+	uint16_t target_index = super_block.DATA_BLOCK + cur_index;
+	return target_index;
+}
+
 int fs_read(int fd, void *buf, size_t count)
 {
 	size_t ret;
@@ -391,32 +454,78 @@ int fs_read(int fd, void *buf, size_t count)
 		return -1;
 	}
 	struct file_desc *cur_file_desc = fd_table[fd]; //file & offset
-	// Most IDEAL CASE
-	// file is exactly in one block
-	// which means the file is a block
-	if(count == BLOCK_SIZE && cur_file_desc->cur_file->FILE_SIZE == BLOCK_SIZE){
-		block_read(cur_file_desc->cur_file->FILE_FIRST_BLOCK, buf);
-		ret = cur_file_desc->cur_file->FILE_SIZE;
-	}
+	// // Most IDEAL CASE
+	// // file is exactly in one block
+	// // which means the file is a block
+	// if(count == BLOCK_SIZE && cur_file_desc->cur_file->FILE_SIZE == BLOCK_SIZE){
+	// 	block_read(cur_file_desc->cur_file->FILE_FIRST_BLOCK, buf);
+	// 	ret = cur_file_desc->cur_file->FILE_SIZE;
+	// }
 	// IDEAL CASE
 	// file takes mutiple blocks (large file)
 	// only read one of the blocks
 	// offset is exactly at the beginning of the block
 	/// offset / block_size + 1
 	// index of the block
-	int start_block_num = (cur_file_desc->offset / BLOCK_SIZE) + 1; // assume 3, for example
-	uint16_t file_start_block_ind = cur_file_desc->cur_file->FILE_FIRST_BLOCK;
-	uint16_t cur_index = start_block_num;
-	for(int i = 1; i < start_block_num; i++){
-		cur_index = FAT[cur_index]; 
-	}
-	uint16_t target_index = super_block.DATA_BLOCK + cur_index;
-	block_read(target_index, buf);
-	ret = BLOCK_SIZE;
+	// int start_block_num = (cur_file_desc->offset / BLOCK_SIZE) + 1; // assume 3, for example
+	// uint16_t file_start_block_ind = cur_file_desc->cur_file->FILE_FIRST_BLOCK;
+	// uint16_t cur_index = start_block_num;
+	// for(int i = 1; i < start_block_num; i++){
+	// 	cur_index = FAT[cur_index]; 
+	// }
+	// uint16_t target_index = super_block.DATA_BLOCK + cur_index;
+	//block_read(target_index, buf);
+	//ret = BLOCK_SIZE;
 	// if(cur_file_desc->offset % BLOCK_SIZE == 0 || count == BLOCK_SIZE){
 	// }
+	int remaining_to_read = count;
+	// BEGINNING
+	char* bounce = malloc(BLOCK_SIZE);
+	int buffer_offset = 0; // We are adding data in pieces, so we need to keep track of beginning of buffer
 
+	while (remaining_to_read > 0) { // Loop until we have no more bytes to read 
+		int target_index = index_containing_offset(cur_file_desc);
+		block_read(target_index, bounce);
 
-	return ret;
+		int block_offset = cur_file_desc->offset % BLOCK_SIZE; // Shows how far in we are into the block
+
+		if (block_offset + remaining_to_read < BLOCK_SIZE) { // CASE 1: We extract part of the block (where offset is in the middle, count is the end)
+			memcpy(buf + buffer_offset, bounce + block_offset, remaining_to_read);
+			cur_file_desc->offset += remaining_to_read;
+			buffer_offset += remaining_to_read;
+			remaining_to_read = 0; // Ensures that the loop won't run again
+			
+		}
+		else if (block_offset + remaining_to_read > BLOCK_SIZE) { // CASE 2: Bigger than a block
+			int block_left = BLOCK_SIZE - block_offset;
+			memcpy(buf + buffer_offset, bounce + block_offset, block_left);
+			cur_file_desc->offset += block_left;
+			buffer_offset += block_left;
+			remaining_to_read = remaining_to_read - block_left;
+
+		}
+		else if ((block_offset + remaining_to_read) == BLOCK_SIZE) { // CASE 3: We're reading exactly a block (IDEAL CASE)
+			memcpy(buf + buffer_offset, bounce + block_offset, remaining_to_read);
+			cur_file_desc->offset += remaining_to_read;
+			buffer_offset += remaining_to_read;
+			remaining_to_read = remaining_to_read - BLOCK_SIZE;
+		}
+	}
+
+	return count; // CHECK THIS
 }
 
+// 0 --4000-- 4096 offset = 4000
+
+/**
+ * bounce 
+ * while (count > 0) {
+ * 		// How much should we read from this block? [BLOCK_SIZE - (offset % BLOCK_SIZE)]
+ * 		// Read from this block (how much we need to)
+ * 				// bounce = block_read [this reads the entire block]
+ * 				// memcpy(buf, bounce, )
+ * 		// update the offset of the file
+ * 		// update "count"
+ * 		// Find the following block index (the one that contains the file->offset) [FOR LOOP]
+ * }
+ */ 
