@@ -95,9 +95,13 @@ int fs_mount(const char *diskname)
 	//FAT[0] = FAT_EOC;
 	for(int i = 0; i < super_block->FAT_BLOCK_COUNT; i++){
 		//FAT[i] = 0;
-		block_read(i+1, FAT + (i * (BLOCK_SIZE/sizeof(uint16_t))));
+		block_read(i + 1, FAT + (i * (BLOCK_SIZE/sizeof(uint16_t))));
 	}
-	
+	// for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
+	// 	root_directory->all_files[i].FILENAME[0] = '\0';
+	// 	root_directory->all_files[i].FILE_SIZE = 0;
+	// 	root_directory->all_files[i].FILE_FIRST_BLOCK = FAT_EOC;
+	// }
 	return 0;
 }
 
@@ -109,12 +113,12 @@ int fs_umount(void)
 	// 	return -1;
 	// }
 
-	for(int i = 0; i < super_block->FAT_BLOCK_COUNT; i++){
-		//FAT[i] = 0;
-		block_write(i+1, FAT + (i * (BLOCK_SIZE/sizeof(uint16_t))));
-	}
+	// for(int i = 0; i < super_block->FAT_BLOCK_COUNT; i++){
+	// 	//FAT[i] = 0;
+	// 	block_write(i + 1, FAT + (i * (BLOCK_SIZE/sizeof(uint16_t))));
+	// }
 	
-	block_write(super_block->ROOT_DIRECTORY_BLOCK, root_directory);
+	// block_write(super_block->ROOT_DIRECTORY_BLOCK, root_directory);
 
 	int closeFlag = block_disk_close();
 	if(closeFlag == -1){
@@ -144,9 +148,15 @@ int fs_info(void)
 			fatFreeCounter++;
 		}
 	}
-	int root_directory_cur_size = sizeof(root_directory->all_files) / sizeof(root_directory->all_files[0]);
+	int root_directory_free_size = 0;
+	for(int i = 0; i < FS_FILE_MAX_COUNT; i++){
+		if(root_directory->all_files[i].FILENAME[0] == '\0'){
+			root_directory_free_size++;
+		}
+	}
+	// int root_directory_cur_size = sizeof(root_directory->all_files) / sizeof(root_directory->all_files[0]);
 	printf("fat_free_ratio=%d/%d\n",fatFreeCounter,super_block->DATA_BLOCK_COUNT);
-	printf("rdir_free_ratio=%d/%d\n",root_directory_cur_size,FS_FILE_MAX_COUNT);
+	printf("rdir_free_ratio=%d/%d\n",root_directory_free_size,FS_FILE_MAX_COUNT);
 	return 0;
 }
 
@@ -165,32 +175,40 @@ int fs_info(void)
  */
 int fs_create(const char *filename)
 {
-	
-	int file_length = strlen(filename);
-	
-	if (filename[file_length] != '\0' || file_length > FS_FILENAME_LEN) {
+	if(filename == NULL){
 		return -1;
 	}
-
+	int file_length = strlen(filename);
+	
+	// if (filename[file_length] != '\0' || file_length > FS_FILENAME_LEN) {
+	// 	return -1;
+	// }
+	if(file_length >= FS_FILENAME_LEN){
+		return -1;
+	}
 	// If file already exists
 	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
 		if (strcmp(filename, (char*)root_directory->all_files[i].FILENAME) == 0) { 
 			return -1;
 		}
 	}
-
 	// If the root directory already contains FS_FILE_MAX_COUNT files
 	// sizeof(msg)/sizeof(uint8_t);
-	int root_directory_length = sizeof(root_directory->all_files)/sizeof(root_directory->all_files[0]);
+	int root_directory_length = 0;
+	for(int i = 0; i < FS_FILE_MAX_COUNT; i++){
+		if(root_directory->all_files[i].FILENAME[0] != '\0'){
+			root_directory_length += 1;;
+		}
+	}
+	// int root_directory_length = sizeof(root_directory->all_files)/sizeof(root_directory->all_files[0]);
 	// int root_directory_length = strlen(root_directory.all_files);
 	if (root_directory_length >= FS_FILE_MAX_COUNT) {
 		return -1;
 	}
-	
 	// struct file new_file;
 	int new_file_index;
 	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
-		if (root_directory->all_files[i].FILENAME[0] == '\0') {
+		if (root_directory->all_files[i].FILENAME[0] == '\0') { // first available in rootdirectory
 			//strcpy(root_directory.all_files[i].FILENAME, filename);
 			new_file_index = i;
 			break;
@@ -199,14 +217,12 @@ int fs_create(const char *filename)
 	// for(int i = 0; i < file_length; i++){
 	// 	strcpy(root_directory.all_files[new_file_index].FILENAME[i], (uint8_t)filename[i]);
 	// }
-	memcpy(root_directory->all_files[new_file_index].FILENAME, filename, file_length);
+	memcpy(root_directory->all_files[new_file_index].FILENAME, filename, file_length+1);
 	root_directory->all_files[new_file_index].FILE_SIZE = 0;
 	root_directory->all_files[new_file_index].FILE_FIRST_BLOCK = FAT_EOC;
-
+	block_write(super_block->ROOT_DIRECTORY_BLOCK, root_directory);
 	//FAT[new_file_index] = FAT_EOC;
-
 	return 0;
-
 }
 /**
  * fs_delete - Delete a file
@@ -220,15 +236,21 @@ int fs_create(const char *filename)
  */
 int fs_delete(const char *filename)
 {
+	int errFlag = -1;
 	if (filename == NULL) {
-		return -1;
+		printf("1st if\n");
+		errFlag = -1;
 	}
 
-	// If file already exists
+	// If file not exist
 	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
-		if (strcmp(filename, (char*)root_directory->all_files[i].FILENAME) == 0) { 
-			return -1;
+		if (strcmp(filename, (char*)root_directory->all_files[i].FILENAME) == 0) {
+			errFlag = 0;
 		}
+	}
+	if(errFlag == -1){
+		printf("error flag\n");
+		return -1;
 	}
 
 	// TO DO: if file @filename is currently open
@@ -240,17 +262,25 @@ int fs_delete(const char *filename)
 			break;
 		}
 	}
-
+	printf("start while loop\n");
 	uint16_t fat_index = root_directory->all_files[file_index].FILE_FIRST_BLOCK;
 	uint16_t temp_fat_index;
-	while (FAT[fat_index] != FAT_EOC) {
-		temp_fat_index = FAT[fat_index];
-		FAT[fat_index] = 0;
-		fat_index = temp_fat_index;
+	if(fat_index != FAT_EOC){
+		while (FAT[fat_index] != FAT_EOC) {
+			temp_fat_index = FAT[fat_index];
+			FAT[fat_index] = 0;
+			fat_index = temp_fat_index;
+		}
 	}
+	printf("above rootDirectory\n");
 	root_directory->all_files[file_index].FILENAME[0] = '\0';
 	root_directory->all_files[file_index].FILE_SIZE = 0;
-
+	printf("above rdir block write\n");
+	block_write(super_block->ROOT_DIRECTORY_BLOCK, root_directory);
+	printf("after rdir write\n");
+	for(int i = 1; i <= super_block->FAT_BLOCK_COUNT; i++){
+		// block_write(i + 1, FAT + ((i-1) * (BLOCK_SIZE/2)));
+	}
 	return 0;
 }
 
@@ -264,6 +294,7 @@ int fs_delete(const char *filename)
 
 int fs_ls(void)
 {
+	// printf("entering ls\n");
 	if(disk_opened == -1){ //no underlying virtual disk was opened
 		return -1;
 	}
@@ -286,16 +317,16 @@ int fs_open(const char *filename)
 	// filename invalid
 	int file_length = strlen(filename);
 	if (filename[file_length] != '\0' || file_length > FS_FILENAME_LEN) {
-		printf("return at first if in open\n");
+		// printf("return at first if in open\n");
 		returnFlag = -1;
 	}
 	// no filename to open
-	printf("max count: %d\n", FS_FILE_MAX_COUNT);
+	// printf("max count: %d\n", FS_FILE_MAX_COUNT);
 	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
 		if(strcmp((char*)root_directory->all_files[i].FILENAME, filename) == 0){
-			printf("FILENAME:%s\n",root_directory->all_files[i].FILENAME);
-			printf("filename:%s\n",filename);
-			printf("return at 2nd if in open\n");
+			// printf("FILENAME:%s\n",root_directory->all_files[i].FILENAME);
+			// printf("filename:%s\n",filename);
+			// printf("return at 2nd if in open\n");
 			returnFlag = 0;
 			break;
 		}
@@ -303,7 +334,7 @@ int fs_open(const char *filename)
 	
 	// max count
 	if(current_open_amount == FS_OPEN_MAX_COUNT){
-		printf("return at 3rd if in open\n");
+		// printf("return at 3rd if in open\n");
 		returnFlag = -1;
 	}
 	if(returnFlag == -1){
@@ -320,8 +351,13 @@ int fs_open(const char *filename)
 	//currentopenamount++
 	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
 		if(strcmp((char*)root_directory->all_files[i].FILENAME, filename) == 0){
+			// printf("first assign value to file desc\n");
 			temp_file_desc->cur_file = &(root_directory->all_files[i]);
+			// printf("root_directory->all_files:%s\n", root_directory->all_files[i].FILENAME);
+			// printf("temp_file_desc->curfile:%s\n",(char*)temp_file_desc->cur_file);
+			// printf("assign temp file desc offset\n");
 			temp_file_desc->offset = 0;
+			// printf("increase current open amount\n");
 			current_open_amount++;
 			break;
 		}
@@ -329,12 +365,18 @@ int fs_open(const char *filename)
 	
 	for(int j = 0; j < FS_OPEN_MAX_COUNT; j++){
 		if(fd_table[j] == NULL){ //first empty position
-			fd_table[j] = temp_file_desc;
+			// printf("finding first available position in  fd_table\n");
+			fd_table[j] =temp_file_desc;
+			// memcpy(fd_table[j], temp_file_desc, sizeof(temp_file_desc));
+			// strcpy(fd_table[j],temp_file_desc);
+			// printf("assign fdtable[j] = %s\n",fd_table[j]->cur_file->FILENAME);
+			// printf("current fdtable[j] offset = %d\n", fd_table[j]->offset);
 			fd_table_index = j;
+			// printf("fd table index = %d\n", fd_table_index);
 			break;
 		}
 	}
-	free(temp_file_desc);
+	// free(temp_file_desc);
 	//return i of fd_table[i]
 	return fd_table_index;
 }
@@ -360,6 +402,8 @@ int fs_close(int fd)
 int fs_stat(int fd)
 {
 	// fd invalid out of bounds
+	// printf("fd = %d\n", fd);
+	// printf("fd info = %s\n", fd_table[fd]->cur_file->FILENAME);
 	if(fd >= FS_OPEN_MAX_COUNT){
 		return -1;
 	}
@@ -391,35 +435,22 @@ int fs_lseek(int fd, size_t offset)
 	fd_table[fd]->offset = offset;
 	return 0;
 }
-int index_containing_offset (struct file_desc* cur_file_desc) {
+int index_containing_offset (struct file_desc* cur_file_desc, int first_block) {
 	int start_block_num = (cur_file_desc->offset / BLOCK_SIZE); // assume 3, for example
+	// int start_block_num = (cur_file_desc->cur_file->FILE_FIRST_BLOCK % BLOCK_SIZE);
+	
 	// uint16_t file_start_block_ind = cur_file_desc->cur_file->FILE_FIRST_BLOCK;
-	uint16_t cur_index = start_block_num;
-	for(int i = 1; i < start_block_num; i++){
-		cur_index = FAT[cur_index]; 
-	}
-	uint16_t target_index = super_block->DATA_BLOCK + cur_index;
+	// uint16_t cur_index = start_block_num;
+	// for(int i = 1; i < start_block_num; i++){
+	// 	cur_index = FAT[cur_index]; 
+		
+	// }
+	// uint16_t target_index = super_block->DATA_BLOCK + cur_index;
+	uint16_t target_index = start_block_num + first_block + super_block->DATA_BLOCK;
+	printf("target_index = %d\n", target_index);
 	return target_index;
 }
-/**
- * fs_write - Write to a file
- * @fd: File descriptor
- * @buf: Data buffer to write in the file
- * @count: Number of bytes of data to be written
- *
- * Attempt to write @count bytes of data from buffer pointer by @buf into the
- * file referenced by file descriptor @fd. It is assumed that @buf holds at
- * least @count bytes.
- *
- * When the function attempts to write past the end of the file, the file is
- * automatically extended to hold the additional bytes. If the underlying disk
- * runs out of space while performing a write operation, fs_write() should write
- * as many bytes as possible. The number of written bytes can therefore be
- * smaller than @count (it can even be 0 if there is no more space on disk).
- *
- * Return: -1 if file descriptor @fd is invalid (out of bounds or not currently
- * open). Otherwise return the number of bytes actually written.
- **/
+
 
 int fs_write(int fd, void *buf, size_t count)
 {
@@ -432,23 +463,37 @@ int fs_write(int fd, void *buf, size_t count)
 	if(fd_table[fd] == NULL){
 		return -1;
 	}
+	int first_block_pos = 0;
+	struct file_desc *cur_file_desc = fd_table[fd]; //file & offset
+	for(int i = 0; i < FS_FILE_MAX_COUNT; i++){
+		if(root_directory->all_files[i].FILENAME == cur_file_desc->cur_file->FILENAME){
+			first_block_pos = root_directory->all_files[i].FILE_FIRST_BLOCK;
+		}
+	}
 	int data_record = 0;
 	char* bounce = malloc(BLOCK_SIZE); // bounce block to transit data
+
 	int remaining_to_read = count; // data to be written
-	struct file_desc *cur_file_desc = fd_table[fd]; // current file to be written
+	// struct file_desc *cur_file_desc = fd_table[fd]; // current file to be written
 	int size_to_write = 0;
+	int buffer_offset = 0;
 	while(remaining_to_read > 0){
-		int target_block = index_containing_offset(cur_file_desc); // find the block the file offset in
+		int target_block = index_containing_offset(cur_file_desc, first_block_pos); // find the block the file offset in
 		int block_offset = cur_file_desc->offset % BLOCK_SIZE; // get the position in the block 
+		block_read(target_block, bounce);
 		if(block_offset + remaining_to_read <= cur_file_desc->cur_file->FILE_SIZE){ // Current data + things to be written can exactly filled a block
+		/**
+		 * 	memcpy(buf + buffer_offset, bounce + block_offset, remaining_to_read);
+			cur_file_desc->offset += remaining_to_read;
+			buffer_offset += remaining_to_read;
+			remaining_to_read = 0; // Ensures that the loop won't run again
+			
+		 * */
 			size_to_write = remaining_to_read;
-			block_read(target_block + block_offset, bounce); // read from current index in the block to the bounce
-			// block_read(target_block, bounce); // test if above line works, if not, test this line
-			memcpy(bounce + block_offset, buf, size_to_write); // copy remaining bytes of data from buf to bounce start at [current index]
-			// should bounce be uint8_t [BLOCK_SIEZE]?
-			// test later
+			// block_read(target_block + block_offset, bounce); // read from current index in the block to the bounce
+			memcpy(bounce + block_offset, buf + buffer_offset, size_to_write); // copy remaining bytes of data from buf to bounce start at [current index]
+			
 			block_write(target_block + block_offset, bounce); // write data start at block_offset in bounce;
-			// block_write(target_block, bounce)
 			data_record += size_to_write;
 			remaining_to_read = 0;
 		} else if (block_offset + remaining_to_read > cur_file_desc->cur_file->FILE_SIZE){
@@ -459,8 +504,8 @@ int fs_write(int fd, void *buf, size_t count)
 				minBytes = remaining_to_read;
 			}
 			size_to_write = minBytes;
-			block_read(target_block + block_offset, bounce);
-			memcpy(bounce + block_offset, buf, size_to_write);
+			// block_read(target_block + block_offset, bounce);
+			memcpy(bounce + block_offset, buf + buffer_offset, size_to_write);
 			block_write(target_block + block_offset, bounce);
 			data_record += size_to_write;
 			remaining_to_read -= size_to_write;
@@ -468,28 +513,6 @@ int fs_write(int fd, void *buf, size_t count)
 	}
 	return data_record;
 }
-	
-
-	/**
-	 * Create bounce (size of BLOCK_SIZE)
-	 * Remaining_bytes = count
-	 * get the file using 'fd'
-	 * if (count > fd->file_size) ==> extend the file
-	 * if (count <= fd->file_size) ==> 
-	 * while (remaining_bytes > 0) {
-	 * 		Case 1: Things to be written is less than block_size
-	 * 			Read from file in the block to the current file offset (from beginning to offset) INTO bounce
-	 * 			Append buffer into bounce (to the end)
-	 * 			block_write (bounce into block)
-	 * 			Pass buffer into bounce
-	 * 
-	 * 		Case 2: Greater than the block
-	 * 			If yes, create new data block, then write the remaining into this new data block
-	 * 			See how many bytes remaining in the block. Then write that many bytes into this block
-	 * 			Detect if memory allows to create a new data block
-	 * 			Update the FAT to link the data blocks
-	 * }
-	 **/
 
 
 
@@ -507,17 +530,23 @@ int fs_read(int fd, void *buf, size_t count)
 	if(fd_table[fd] == NULL){
 		return -1;
 	}
+	int first_block_pos = 0;
 	struct file_desc *cur_file_desc = fd_table[fd]; //file & offset
-
+	for(int i = 0; i < FS_FILE_MAX_COUNT; i++){
+		if(root_directory->all_files[i].FILENAME == cur_file_desc->cur_file->FILENAME){
+			first_block_pos = root_directory->all_files[i].FILE_FIRST_BLOCK;
+		}
+	}
+	// struct RootDirectory *cur_file_desc = malloc(sizeof(struct RootDirectory));
+	// cur_file_desc->all_files->FILE_FIRST_BLOCK = fd_table[fd];
+	
 	int remaining_to_read = count;
 	// BEGINNING
 	char* bounce = malloc(BLOCK_SIZE);
 	int buffer_offset = 0; // We are adding data in pieces, so we need to keep track of beginning of buffer
-
 	while (remaining_to_read > 0) { // Loop until we have no more bytes to read 
-		int target_index = index_containing_offset(cur_file_desc);
+		int target_index = index_containing_offset(cur_file_desc, first_block_pos);
 		block_read(target_index, bounce);
-
 		int block_offset = cur_file_desc->offset % BLOCK_SIZE; // Shows how far in we are into the block
 
 		if (block_offset + remaining_to_read < BLOCK_SIZE) { // CASE 1: We extract part of the block (where offset is in the middle, count is the end)
@@ -543,5 +572,9 @@ int fs_read(int fd, void *buf, size_t count)
 		}
 	}
 
+	// for(int i = 0; i < count; i++){
+	// 	printf("buf = %d\n", ((uint8_t*)buf)[i]);
+	// }
+	
 	return count; // CHECK THIS
 }
