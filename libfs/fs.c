@@ -65,14 +65,13 @@ int signature_cmp(uint8_t* sig, char* target, int len){
 }
 //=====
 int fs_mount(const char *diskname)
-{	
-	printf("STARTING MOUNT\n");
+{
 	int disk_opened = block_disk_open(diskname);
 	if(disk_opened == -1){
 		//perror("Fail to open disk");
 		return -1;
 	}
-	
+	// printf("Ok - 1\n");
 	super_block = malloc(sizeof(struct SuperBlock));
 	block_read(0, super_block);
 
@@ -85,12 +84,14 @@ int fs_mount(const char *diskname)
 	}
 	
 	// Initialize Root_directory
+	// printf("Ok - 2\n");
 	root_directory = malloc(BLOCK_SIZE);
 	block_read(super_block->ROOT_DIRECTORY_BLOCK, root_directory);
 
 	// so far skip the root directory testing, do it later.
 	// Initialize FAT (UPDATE: we don't just put in all zeros, we have to use block_read() I think...)
-	FAT = malloc(sizeof(super_block->FAT_BLOCK_COUNT * BLOCK_SIZE));
+	// printf("Ok - 3\n");
+	FAT = malloc(super_block->FAT_BLOCK_COUNT * BLOCK_SIZE); // assign memory space for BLOCK_SIZE of table
 	//FAT[0] = FAT_EOC;
 	for(int i = 0; i < super_block->FAT_BLOCK_COUNT; i++){
 		//FAT[i] = 0;
@@ -271,7 +272,7 @@ int fs_ls(void)
 
 	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
 		if (root_directory->all_files[i].FILENAME[0] != '\0') { // If filename is not empty, then print contents
-			printf("name %s, size %d, first_data_block %d\n", root_directory->all_files[i].FILENAME, 
+			printf("file: %s, size: %d, data_blk: %d\n", root_directory->all_files[i].FILENAME, 
 			root_directory->all_files[i].FILE_SIZE ,root_directory->all_files[i].FILE_FIRST_BLOCK);
 		}
 	}
@@ -281,19 +282,31 @@ int fs_ls(void)
 
 int fs_open(const char *filename)
 {
+	int returnFlag = -1;
 	// filename invalid
 	int file_length = strlen(filename);
 	if (filename[file_length] != '\0' || file_length > FS_FILENAME_LEN) {
-		return -1;
+		printf("return at first if in open\n");
+		returnFlag = -1;
 	}
 	// no filename to open
+	printf("max count: %d\n", FS_FILE_MAX_COUNT);
 	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
-		if(strcmp((char*)root_directory->all_files[i].FILENAME, filename) != 0){
-			return -1;
+		if(strcmp((char*)root_directory->all_files[i].FILENAME, filename) == 0){
+			printf("FILENAME:%s\n",root_directory->all_files[i].FILENAME);
+			printf("filename:%s\n",filename);
+			printf("return at 2nd if in open\n");
+			returnFlag = 0;
+			break;
 		}
 	}
+	
 	// max count
 	if(current_open_amount == FS_OPEN_MAX_COUNT){
+		printf("return at 3rd if in open\n");
+		returnFlag = -1;
+	}
+	if(returnFlag == -1){
 		return -1;
 	}
 	// =========
