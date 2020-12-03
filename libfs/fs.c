@@ -225,7 +225,7 @@ int fs_delete(const char *filename)
 {
 	int errFlag = -1;
 	if (filename == NULL) {
-		printf("1st if\n");
+		//printf("1st if\n");
 		errFlag = -1;
 	}
 
@@ -236,7 +236,7 @@ int fs_delete(const char *filename)
 		}
 	}
 	if(errFlag == -1){
-		printf("error flag\n");
+		//printf("error flag\n");
 		return -1;
 	}
 
@@ -249,7 +249,7 @@ int fs_delete(const char *filename)
 			break;
 		}
 	}
-	printf("start while loop\n");
+	//printf("start while loop\n");
 	uint16_t fat_index = root_directory->all_files[file_index].FILE_FIRST_BLOCK;
 	uint16_t temp_fat_index;
 	if(fat_index != FAT_EOC){
@@ -259,12 +259,12 @@ int fs_delete(const char *filename)
 			fat_index = temp_fat_index;
 		}
 	}
-	printf("above rootDirectory\n");
+	//printf("above rootDirectory\n");
 	root_directory->all_files[file_index].FILENAME[0] = '\0';
 	root_directory->all_files[file_index].FILE_SIZE = 0;
-	printf("above rdir block write\n");
+	//printf("above rdir block write\n");
 	block_write(super_block->ROOT_DIRECTORY_BLOCK, root_directory);
-	printf("after rdir write\n");
+	//printf("after rdir write\n");
 	for(int i = 1; i <= super_block->FAT_BLOCK_COUNT; i++){
 		// block_write(i + 1, FAT + ((i-1) * (BLOCK_SIZE/2)));
 	}
@@ -434,7 +434,7 @@ int index_containing_offset (struct file_desc* cur_file_desc, int first_block) {
 	// }
 	// uint16_t target_index = super_block->DATA_BLOCK + cur_index;
 	uint16_t target_index = start_block_num + first_block + super_block->DATA_BLOCK;
-	printf("target_index = %d\n", target_index);
+	//printf("target_index = %d\n", target_index);
 	return target_index;
 }
 
