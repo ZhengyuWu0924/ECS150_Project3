@@ -10,7 +10,7 @@
 #define FAT_EOC 0xFFFF
 
 struct SuperBlock{
-	uint64_t SIGNATURE; // ECS150
+	uint8_t SIGNATURE[8]; // ECS150FS
 	uint16_t TOTAL_BLOCKS_COUNTS; // Total # of blocks
 	uint16_t ROOT_DIRECTORY_BLOCK; // Root directory index
 	uint16_t DATA_BLOCK; // First data block index
@@ -42,7 +42,7 @@ struct file_desc{
 };
 
 uint16_t *FAT;
-struct SuperBlock super_block;
+struct SuperBlock* super_block;
 struct RootDirectory root_directory;
 struct file_desc *fd_table[FS_OPEN_MAX_COUNT];
 int disk_opened;
@@ -50,12 +50,19 @@ int current_open_amount;
 
 int memFree(void){
 	free(FAT);
-	free((void*)&super_block);
-	free((void*)&root_directory);
+	free(super_block);
+	// free(root_directory);
 	return 0;
 }
 
-
+int signature_cmp(uint8_t* sig, char* target, int len){
+	for(int i = 0; i < len; i++){
+		if(sig[i] != (uint8_t)target[i]){
+			return -1;
+		}
+	}
+	return 0;
+}
 //=====
 int fs_mount(const char *diskname)
 {
@@ -66,22 +73,25 @@ int fs_mount(const char *diskname)
 	}
 	block_read(0, (void*)&super_block);
 	// block_read(sizeof(super_block), (void*)&super_block);
-	if(strcmp(super_block.SIGNATURE, "ECS150FS") != 0){
-		perror("Signature False");
+	// if(strcmp(super_block.SIGNATURE, "ECS150FS") != 0){
+	// 	perror("Signature False");
+	// 	return -1;
+	// }
+	if(signature_cmp(super_block->SIGNATURE, "ECS150FS", 8) == -1){
 		return -1;
 	}
-	if(super_block.DATA_BLOCK_COUNT != block_disk_count()){
+	if(super_block->DATA_BLOCK_COUNT != block_disk_count()){
 		perror("COUNT DIFFERENT\n");
 		return -1;
 	}
 	// Initialize Root_directory
-	block_read(super_block.ROOT_DIRECTORY_BLOCK, (void*)&root_directory);
+	block_read(super_block->ROOT_DIRECTORY_BLOCK, (void*)&root_directory);
 	// so far skip the root directory testing, do it later.
 	
 	// Initialize FAT (UPDATE: we don't just put in all zeros, we have to use block_read() I think...)
-	FAT = malloc(sizeof(super_block.FAT_BLOCK_COUNT * BLOCK_SIZE));
+	FAT = malloc(sizeof(super_block->FAT_BLOCK_COUNT * BLOCK_SIZE));
 	FAT[0] = FAT_EOC;
-	for(int i = 1; i < super_block.FAT_BLOCK_COUNT; i++){
+	for(int i = 1; i < super_block->FAT_BLOCK_COUNT; i++){
 		//FAT[i] = 0;
 		block_read(i, (void*)&FAT[i]);
 	}
@@ -115,19 +125,19 @@ int fs_info(void)
 		return -1;
 	}
 	printf("FS Info:\n");
-	printf("total_blk_count=%d\n", super_block.TOTAL_BLOCKS_COUNTS);
-	printf("fat_blk_count=%d\n",super_block.FAT_BLOCK_COUNT);
-	printf("rdir_blk=%d\n",super_block.ROOT_DIRECTORY_BLOCK);
-	printf("data_blk=%d\n",super_block.DATA_BLOCK);
-	printf("data_blk_count=%d\n",super_block.DATA_BLOCK_COUNT);
+	printf("total_blk_count=%d\n", super_block->TOTAL_BLOCKS_COUNTS);
+	printf("fat_blk_count=%d\n",super_block->FAT_BLOCK_COUNT);
+	printf("rdir_blk=%d\n",super_block->ROOT_DIRECTORY_BLOCK);
+	printf("data_blk=%d\n",super_block->DATA_BLOCK);
+	printf("data_blk_count=%d\n",super_block->DATA_BLOCK_COUNT);
 	int fatFreeCounter = 0;
-	for(int i = 0; i < super_block.DATA_BLOCK_COUNT; i++){
+	for(int i = 0; i < super_block->DATA_BLOCK_COUNT; i++){
 		if(FAT[i] == 0){
 			fatFreeCounter++;
 		}
 	}
 	int root_directory_cur_size = sizeof(root_directory.all_files) / sizeof(root_directory.all_files[0]);
-	printf("fat_free_ratio=%d/%d\n",fatFreeCounter,super_block.DATA_BLOCK_COUNT);
+	printf("fat_free_ratio=%d/%d\n",fatFreeCounter,super_block->DATA_BLOCK_COUNT);
 	printf("rdir_free_ratio=%d/%d\n",root_directory_cur_size,FS_FILE_MAX_COUNT);
 	return 0;
 }
@@ -149,24 +159,27 @@ int fs_create(const char *filename)
 {
 	
 	int file_length = strlen(filename);
+	
 	if (filename[file_length] != '\0' || file_length > FS_FILENAME_LEN) {
 		return -1;
 	}
 
 	// If file already exists
 	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
-		if (strcmp(filename, root_directory.all_files[i].FILENAME) == 0) { 
+		if (strcmp(filename, (char*)root_directory.all_files[i].FILENAME) == 0) { 
 			return -1;
 		}
 	}
 
 	// If the root directory already contains FS_FILE_MAX_COUNT files
-	int root_directory_length = strlen(root_directory.all_files);
+	// sizeof(msg)/sizeof(uint8_t);
+	int root_directory_length = sizeof(root_directory.all_files)/sizeof(root_directory.all_files[0]);
+	// int root_directory_length = strlen(root_directory.all_files);
 	if (root_directory_length >= FS_FILE_MAX_COUNT) {
 		return -1;
 	}
 	
-	struct file new_file;
+	// struct file new_file;
 	int new_file_index;
 	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
 		if (root_directory.all_files[i].FILENAME[0] == '\0') {
@@ -175,8 +188,10 @@ int fs_create(const char *filename)
 			break;
 		}
 	}
-
-	strcpy(root_directory.all_files[new_file_index].FILENAME, filename);
+	// for(int i = 0; i < file_length; i++){
+	// 	strcpy(root_directory.all_files[new_file_index].FILENAME[i], (uint8_t)filename[i]);
+	// }
+	memcpy(root_directory.all_files[new_file_index].FILENAME, filename, file_length);
 	root_directory.all_files[new_file_index].FILE_SIZE = 0;
 	root_directory.all_files[new_file_index].FILE_FIRST_BLOCK = FAT_EOC;
 
@@ -201,8 +216,9 @@ int fs_delete(const char *filename)
 		return -1;
 	}
 
+	// If file already exists
 	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
-		if (strcmp(filename, root_directory.all_files[i].FILENAME) != 0) { 
+		if (strcmp(filename, (char*)root_directory.all_files[i].FILENAME) == 0) { 
 			return -1;
 		}
 	}
@@ -211,7 +227,7 @@ int fs_delete(const char *filename)
 
 	int file_index;
 	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
-		if (strcmp(root_directory.all_files[i].FILENAME, filename) == 0) {
+		if (strcmp((char*)root_directory.all_files[i].FILENAME, filename) == 0) {
 			file_index = i;
 			break;
 		}
@@ -224,8 +240,7 @@ int fs_delete(const char *filename)
 		FAT[fat_index] = 0;
 		fat_index = temp_fat_index;
 	}
-
-	strcpy(root_directory.all_files[file_index].FILENAME, "");
+	root_directory.all_files[file_index].FILENAME[0] = '\0';
 	root_directory.all_files[file_index].FILE_SIZE = 0;
 
 	return 0;
@@ -248,12 +263,12 @@ int fs_ls(void)
 	printf("FS Ls:\n");
 
 	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
-		if (strcmp(root_directory.all_files[i].FILENAME, "") != 0) { // If filename is not empty, then print contents
+		if (root_directory.all_files[i].FILENAME[0] != '\0') { // If filename is not empty, then print contents
 			printf("name %s, size %d, first_data_block %d\n", root_directory.all_files[i].FILENAME, 
 			root_directory.all_files[i].FILE_SIZE ,root_directory.all_files[i].FILE_FIRST_BLOCK);
 		}
 	}
-
+	return 0;
 }
 
 
@@ -266,7 +281,7 @@ int fs_open(const char *filename)
 	}
 	// no filename to open
 	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
-		if(strcmp(root_directory.all_files[i].FILENAME, filename) != 0){
+		if(strcmp((char*)root_directory.all_files[i].FILENAME, filename) != 0){
 			return -1;
 		}
 	}
@@ -284,7 +299,7 @@ int fs_open(const char *filename)
 	//set file offset in fd_table to 0
 	//currentopenamount++
 	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
-		if(strcmp(root_directory.all_files[i].FILENAME, filename) == 0){
+		if(strcmp((char*)root_directory.all_files[i].FILENAME, filename) == 0){
 			temp_file_desc->cur_file = &(root_directory.all_files[i]);
 			temp_file_desc->offset = 0;
 			current_open_amount++;
@@ -293,7 +308,7 @@ int fs_open(const char *filename)
 	}
 	
 	for(int j = 0; j < FS_OPEN_MAX_COUNT; j++){
-		if(strcmp(fd_table[j], NULL) == 0){ //first empty position
+		if(fd_table[j] == NULL){ //first empty position
 			fd_table[j] = temp_file_desc;
 			fd_table_index = j;
 			break;
@@ -311,7 +326,7 @@ int fs_close(int fd)
 		return -1;
 	}
 	// not currently open
-	if(strcmp(fd_table[fd], NULL) == 0){
+	if(fd_table[fd] == NULL){
 		return -1;
 	}
 	// file close
@@ -329,7 +344,7 @@ int fs_stat(int fd)
 		return -1;
 	}
 	// not currently open
-	if(strcmp(fd_table[fd], NULL) == 0){
+	if(fd_table[fd] == NULL){
 		return -1;
 	}
 	uint32_t cur_file_size;
@@ -345,7 +360,7 @@ int fs_lseek(int fd, size_t offset)
 		return -1;
 	}
 	// not currently open
-	if(strcmp(fd_table[fd], NULL) == 0){
+	if(fd_table[fd] == NULL){
 		return -1;
 	}
 	// offset larger than current file size
@@ -356,7 +371,16 @@ int fs_lseek(int fd, size_t offset)
 	fd_table[fd]->offset = offset;
 	return 0;
 }
-
+int index_containing_offset (struct file_desc* cur_file_desc) {
+	int start_block_num = (cur_file_desc->offset / BLOCK_SIZE); // assume 3, for example
+	// uint16_t file_start_block_ind = cur_file_desc->cur_file->FILE_FIRST_BLOCK;
+	uint16_t cur_index = start_block_num;
+	for(int i = 1; i < start_block_num; i++){
+		cur_index = FAT[cur_index]; 
+	}
+	uint16_t target_index = super_block->DATA_BLOCK + cur_index;
+	return target_index;
+}
 /**
  * fs_write - Write to a file
  * @fd: File descriptor
@@ -385,9 +409,46 @@ int fs_write(int fd, void *buf, size_t count)
 		return -1;
 	}
 	// not currently open
-	if(strcmp(fd_table[fd], NULL) == 0){
+	if(fd_table[fd] == NULL){
 		return -1;
 	}
+	int data_record = 0;
+	char* bounce = malloc(BLOCK_SIZE); // bounce block to transit data
+	int remaining_to_read = count; // data to be written
+	struct file_desc *cur_file_desc = fd_table[fd]; // current file to be written
+	int size_to_write = 0;
+	while(remaining_to_read > 0){
+		int target_block = index_containing_offset(cur_file_desc); // find the block the file offset in
+		int block_offset = cur_file_desc->offset % BLOCK_SIZE; // get the position in the block 
+		if(block_offset + remaining_to_read <= cur_file_desc->cur_file->FILE_SIZE){ // Current data + things to be written can exactly filled a block
+			size_to_write = remaining_to_read;
+			block_read(target_block + block_offset, bounce); // read from current index in the block to the bounce
+			// block_read(target_block, bounce); // test if above line works, if not, test this line
+			memcpy(bounce + block_offset, buf, size_to_write); // copy remaining bytes of data from buf to bounce start at [current index]
+			// should bounce be uint8_t [BLOCK_SIEZE]?
+			// test later
+			block_write(target_block + block_offset, bounce); // write data start at block_offset in bounce;
+			// block_write(target_block, bounce)
+			data_record += size_to_write;
+			remaining_to_read = 0;
+		} else if (block_offset + remaining_to_read > cur_file_desc->cur_file->FILE_SIZE){
+			int minBytes = 0;
+			if(remaining_to_read > cur_file_desc->cur_file->FILE_SIZE){
+				minBytes = cur_file_desc->cur_file->FILE_SIZE;
+			} else {
+				minBytes = remaining_to_read;
+			}
+			size_to_write = minBytes;
+			block_read(target_block + block_offset, bounce);
+			memcpy(bounce + block_offset, buf, size_to_write);
+			block_write(target_block + block_offset, bounce);
+			data_record += size_to_write;
+			remaining_to_read -= size_to_write;
+		}
+	}
+	return data_record;
+}
+	
 
 	/**
 	 * Create bounce (size of BLOCK_SIZE)
@@ -411,73 +472,23 @@ int fs_write(int fd, void *buf, size_t count)
 	 **/
 
 
-}
-/**
- * fs_read - Read from a file
- * @fd: File descriptor
- * @buf: Data buffer to be filled with data
- * @count: Number of bytes of data to be read
- *
- * Attempt to read @count bytes of data from the file referenced by file
- * descriptor @fd into buffer pointer by @buf. It is assumed that @buf is large
- * enough to hold at least @count bytes.
- *
- * The number of bytes read can be smaller than @count if there are less than
- * @count bytes until the end of the file (it can even be 0 if the file offset
- * is at the end of the file). The file offset of the file descriptor is
- * implicitly incremented by the number of bytes that were actually read.
- *
- * Return: -1 if file descriptor @fd is invalid (out of bounds or not currently
- * open). Otherwise return the number of bytes actually read.
- */
 
-int index_containing_offset (struct file_desc* cur_file_desc) {
-	int start_block_num = (cur_file_desc->offset / BLOCK_SIZE); // assume 3, for example
-	uint16_t file_start_block_ind = cur_file_desc->cur_file->FILE_FIRST_BLOCK;
-	uint16_t cur_index = start_block_num;
-	for(int i = 1; i < start_block_num; i++){
-		cur_index = FAT[cur_index]; 
-	}
-	uint16_t target_index = super_block.DATA_BLOCK + cur_index;
-	return target_index;
-}
+
+
+
 
 int fs_read(int fd, void *buf, size_t count)
 {
-	size_t ret;
 	// fd invalid out of bounds
 	if(fd >= FS_OPEN_MAX_COUNT){
 		return -1;
 	}
 	// not currently open
-	if(strcmp(fd_table[fd], NULL) == 0){
+	if(fd_table[fd] == NULL){
 		return -1;
 	}
 	struct file_desc *cur_file_desc = fd_table[fd]; //file & offset
-	// // Most IDEAL CASE
-	// // file is exactly in one block
-	// // which means the file is a block
-	// if(count == BLOCK_SIZE && cur_file_desc->cur_file->FILE_SIZE == BLOCK_SIZE){
-	// 	block_read(cur_file_desc->cur_file->FILE_FIRST_BLOCK, buf);
-	// 	ret = cur_file_desc->cur_file->FILE_SIZE;
-	// }
-	// IDEAL CASE
-	// file takes mutiple blocks (large file)
-	// only read one of the blocks
-	// offset is exactly at the beginning of the block
-	/// offset / block_size + 1
-	// index of the block
-	// int start_block_num = (cur_file_desc->offset / BLOCK_SIZE) + 1; // assume 3, for example
-	// uint16_t file_start_block_ind = cur_file_desc->cur_file->FILE_FIRST_BLOCK;
-	// uint16_t cur_index = start_block_num;
-	// for(int i = 1; i < start_block_num; i++){
-	// 	cur_index = FAT[cur_index]; 
-	// }
-	// uint16_t target_index = super_block.DATA_BLOCK + cur_index;
-	//block_read(target_index, buf);
-	//ret = BLOCK_SIZE;
-	// if(cur_file_desc->offset % BLOCK_SIZE == 0 || count == BLOCK_SIZE){
-	// }
+
 	int remaining_to_read = count;
 	// BEGINNING
 	char* bounce = malloc(BLOCK_SIZE);
@@ -514,18 +525,3 @@ int fs_read(int fd, void *buf, size_t count)
 
 	return count; // CHECK THIS
 }
-
-// 0 --4000-- 4096 offset = 4000
-
-/**
- * bounce 
- * while (count > 0) {
- * 		// How much should we read from this block? [BLOCK_SIZE - (offset % BLOCK_SIZE)]
- * 		// Read from this block (how much we need to)
- * 				// bounce = block_read [this reads the entire block]
- * 				// memcpy(buf, bounce, )
- * 		// update the offset of the file
- * 		// update "count"
- * 		// Find the following block index (the one that contains the file->offset) [FOR LOOP]
- * }
- */ 
