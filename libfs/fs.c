@@ -550,7 +550,7 @@ int fs_write(int fd, void *buf, size_t count) {
 			block_write(target_index, bounce);
 
 		}
-		block_write(super_block->ROOT_DIRECTORY_BLOCK, root_directory);
+		//block_write(super_block->ROOT_DIRECTORY_BLOCK, root_directory);
 
 	}
 
