@@ -548,8 +548,9 @@ int fs_write(int fd, void *buf, size_t count) {
 			buffer_offset += remaining_to_write;
 			remaining_to_write = remaining_to_write - BLOCK_SIZE;
 		}
+		block_write(super_block->ROOT_DIRECTORY_BLOCK, root_directory);
+
 	}
-	block_write(super_block->ROOT_DIRECTORY_BLOCK, root_directory);
 
 	return count;
 }
