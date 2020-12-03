@@ -493,7 +493,6 @@ int fs_write(int fd, void *buf, size_t count) {
 		}
 		cur_file_desc->cur_file->FILE_FIRST_BLOCK = new_block_index;
 		FAT[new_block_index] = FAT_EOC;
-		block_write(super_block->ROOT_DIRECTORY_BLOCK, root_directory);
 	}
 
 	// Get index position of the first data block of the file
@@ -503,7 +502,6 @@ int fs_write(int fd, void *buf, size_t count) {
 			first_block_pos = root_directory->all_files[i].FILE_FIRST_BLOCK;
 		}
 	}
-	block_write(super_block->ROOT_DIRECTORY_BLOCK, root_directory);
 
 	int remaining_to_write = count;
 	char* bounce = malloc(BLOCK_SIZE);
@@ -552,9 +550,6 @@ int fs_write(int fd, void *buf, size_t count) {
 			block_write(target_index, bounce);
 
 		}
-		block_write(super_block->ROOT_DIRECTORY_BLOCK, root_directory);
-
-
 	}
 	block_write(super_block->ROOT_DIRECTORY_BLOCK, root_directory);
 	return buffer_offset;
