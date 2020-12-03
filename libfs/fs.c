@@ -204,7 +204,7 @@ int fs_create(const char *filename)
 	// for(int i = 0; i < file_length; i++){
 	// 	strcpy(root_directory.all_files[new_file_index].FILENAME[i], (uint8_t)filename[i]);
 	// }
-	memcpy(root_directory->all_files[new_file_index].FILENAME, filename, file_length);
+	memcpy(root_directory->all_files[new_file_index].FILENAME, filename, file_length+1);
 	root_directory->all_files[new_file_index].FILE_SIZE = 0;
 	root_directory->all_files[new_file_index].FILE_FIRST_BLOCK = FAT_EOC;
 	block_write(super_block->ROOT_DIRECTORY_BLOCK, root_directory);
