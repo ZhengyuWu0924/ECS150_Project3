@@ -43,7 +43,7 @@ struct file_desc{
 
 uint16_t *FAT;
 struct SuperBlock* super_block;
-struct RootDirectory root_directory;
+struct RootDirectory* root_directory;
 struct file_desc *fd_table[FS_OPEN_MAX_COUNT];
 int disk_opened;
 int current_open_amount;
@@ -51,7 +51,7 @@ int current_open_amount;
 int memFree(void){
 	free(FAT);
 	free(super_block);
-	// free(root_directory);
+	free(root_directory);
 	return 0;
 }
 
@@ -65,48 +65,55 @@ int signature_cmp(uint8_t* sig, char* target, int len){
 }
 //=====
 int fs_mount(const char *diskname)
-{
+{	
+	printf("STARTING MOUNT\n");
 	int disk_opened = block_disk_open(diskname);
 	if(disk_opened == -1){
-		perror("Fail to open disk");
+		//perror("Fail to open disk");
 		return -1;
 	}
-	block_read(0, (void*)&super_block);
-	// block_read(sizeof(super_block), (void*)&super_block);
-	// if(strcmp(super_block.SIGNATURE, "ECS150FS") != 0){
-	// 	perror("Signature False");
-	// 	return -1;
-	// }
-	if(signature_cmp(super_block->SIGNATURE, "ECS150FS", 8) == -1){
-		return -1;
-	}
-	if(super_block->DATA_BLOCK_COUNT != block_disk_count()){
-		perror("COUNT DIFFERENT\n");
-		return -1;
-	}
-	// Initialize Root_directory
-	block_read(super_block->ROOT_DIRECTORY_BLOCK, (void*)&root_directory);
-	// so far skip the root directory testing, do it later.
 	
-	// Initialize FAT (UPDATE: we don't just put in all zeros, we have to use block_read() I think...)
-	FAT = malloc(sizeof(super_block->FAT_BLOCK_COUNT * BLOCK_SIZE));
-	FAT[0] = FAT_EOC;
-	for(int i = 1; i < super_block->FAT_BLOCK_COUNT; i++){
-		//FAT[i] = 0;
-		block_read(i, (void*)&FAT[i]);
+	super_block = malloc(sizeof(struct SuperBlock));
+	block_read(0, super_block);
+
+	if(strncmp((char*)super_block->SIGNATURE, "ECS150FS", 8) != 0){
+		return -1;
 	}
 
+	if(super_block->TOTAL_BLOCKS_COUNTS != block_disk_count()){
+		return -1;
+	}
+	
+	// Initialize Root_directory
+	root_directory = malloc(BLOCK_SIZE);
+	block_read(super_block->ROOT_DIRECTORY_BLOCK, root_directory);
+
+	// so far skip the root directory testing, do it later.
+	// Initialize FAT (UPDATE: we don't just put in all zeros, we have to use block_read() I think...)
+	FAT = malloc(sizeof(super_block->FAT_BLOCK_COUNT * BLOCK_SIZE));
+	//FAT[0] = FAT_EOC;
+	for(int i = 0; i < super_block->FAT_BLOCK_COUNT; i++){
+		//FAT[i] = 0;
+		block_read(i+1, FAT + (i * (BLOCK_SIZE/sizeof(uint16_t))));
+	}
 	
 	return 0;
 }
 
 int fs_umount(void)
 {
-	int write = block_write(sizeof(super_block), (void*)&super_block);
-	if(write == -1){
-		perror("FAIL TO WRITE\n");
-		return -1;
+	// int write = block_write(sizeof(super_block), super_block);
+	// if(write == -1){
+	// 	perror("FAIL TO WRITE\n");
+	// 	return -1;
+	// }
+
+	for(int i = 0; i < super_block->FAT_BLOCK_COUNT; i++){
+		//FAT[i] = 0;
+		block_write(i+1, FAT + (i * (BLOCK_SIZE/sizeof(uint16_t))));
 	}
+	
+	block_write(super_block->ROOT_DIRECTORY_BLOCK, root_directory);
 
 	int closeFlag = block_disk_close();
 	if(closeFlag == -1){
@@ -121,7 +128,7 @@ int fs_umount(void)
 
 int fs_info(void)
 {
-	if(disk_opened == -1){ //no underlying virtual disk was opened
+	if(super_block == NULL || root_directory == NULL || FAT == NULL){ //no underlying virtual disk was opened
 		return -1;
 	}
 	printf("FS Info:\n");
@@ -136,7 +143,7 @@ int fs_info(void)
 			fatFreeCounter++;
 		}
 	}
-	int root_directory_cur_size = sizeof(root_directory.all_files) / sizeof(root_directory.all_files[0]);
+	int root_directory_cur_size = sizeof(root_directory->all_files) / sizeof(root_directory->all_files[0]);
 	printf("fat_free_ratio=%d/%d\n",fatFreeCounter,super_block->DATA_BLOCK_COUNT);
 	printf("rdir_free_ratio=%d/%d\n",root_directory_cur_size,FS_FILE_MAX_COUNT);
 	return 0;
@@ -166,14 +173,14 @@ int fs_create(const char *filename)
 
 	// If file already exists
 	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
-		if (strcmp(filename, (char*)root_directory.all_files[i].FILENAME) == 0) { 
+		if (strcmp(filename, (char*)root_directory->all_files[i].FILENAME) == 0) { 
 			return -1;
 		}
 	}
 
 	// If the root directory already contains FS_FILE_MAX_COUNT files
 	// sizeof(msg)/sizeof(uint8_t);
-	int root_directory_length = sizeof(root_directory.all_files)/sizeof(root_directory.all_files[0]);
+	int root_directory_length = sizeof(root_directory->all_files)/sizeof(root_directory->all_files[0]);
 	// int root_directory_length = strlen(root_directory.all_files);
 	if (root_directory_length >= FS_FILE_MAX_COUNT) {
 		return -1;
@@ -182,7 +189,7 @@ int fs_create(const char *filename)
 	// struct file new_file;
 	int new_file_index;
 	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
-		if (root_directory.all_files[i].FILENAME[0] == '\0') {
+		if (root_directory->all_files[i].FILENAME[0] == '\0') {
 			//strcpy(root_directory.all_files[i].FILENAME, filename);
 			new_file_index = i;
 			break;
@@ -191,9 +198,9 @@ int fs_create(const char *filename)
 	// for(int i = 0; i < file_length; i++){
 	// 	strcpy(root_directory.all_files[new_file_index].FILENAME[i], (uint8_t)filename[i]);
 	// }
-	memcpy(root_directory.all_files[new_file_index].FILENAME, filename, file_length);
-	root_directory.all_files[new_file_index].FILE_SIZE = 0;
-	root_directory.all_files[new_file_index].FILE_FIRST_BLOCK = FAT_EOC;
+	memcpy(root_directory->all_files[new_file_index].FILENAME, filename, file_length);
+	root_directory->all_files[new_file_index].FILE_SIZE = 0;
+	root_directory->all_files[new_file_index].FILE_FIRST_BLOCK = FAT_EOC;
 
 	//FAT[new_file_index] = FAT_EOC;
 
@@ -218,7 +225,7 @@ int fs_delete(const char *filename)
 
 	// If file already exists
 	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
-		if (strcmp(filename, (char*)root_directory.all_files[i].FILENAME) == 0) { 
+		if (strcmp(filename, (char*)root_directory->all_files[i].FILENAME) == 0) { 
 			return -1;
 		}
 	}
@@ -227,21 +234,21 @@ int fs_delete(const char *filename)
 
 	int file_index;
 	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
-		if (strcmp((char*)root_directory.all_files[i].FILENAME, filename) == 0) {
+		if (strcmp((char*)root_directory->all_files[i].FILENAME, filename) == 0) {
 			file_index = i;
 			break;
 		}
 	}
 
-	uint16_t fat_index = root_directory.all_files[file_index].FILE_FIRST_BLOCK;
+	uint16_t fat_index = root_directory->all_files[file_index].FILE_FIRST_BLOCK;
 	uint16_t temp_fat_index;
 	while (FAT[fat_index] != FAT_EOC) {
 		temp_fat_index = FAT[fat_index];
 		FAT[fat_index] = 0;
 		fat_index = temp_fat_index;
 	}
-	root_directory.all_files[file_index].FILENAME[0] = '\0';
-	root_directory.all_files[file_index].FILE_SIZE = 0;
+	root_directory->all_files[file_index].FILENAME[0] = '\0';
+	root_directory->all_files[file_index].FILE_SIZE = 0;
 
 	return 0;
 }
@@ -263,9 +270,9 @@ int fs_ls(void)
 	printf("FS Ls:\n");
 
 	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
-		if (root_directory.all_files[i].FILENAME[0] != '\0') { // If filename is not empty, then print contents
-			printf("name %s, size %d, first_data_block %d\n", root_directory.all_files[i].FILENAME, 
-			root_directory.all_files[i].FILE_SIZE ,root_directory.all_files[i].FILE_FIRST_BLOCK);
+		if (root_directory->all_files[i].FILENAME[0] != '\0') { // If filename is not empty, then print contents
+			printf("name %s, size %d, first_data_block %d\n", root_directory->all_files[i].FILENAME, 
+			root_directory->all_files[i].FILE_SIZE ,root_directory->all_files[i].FILE_FIRST_BLOCK);
 		}
 	}
 	return 0;
@@ -281,7 +288,7 @@ int fs_open(const char *filename)
 	}
 	// no filename to open
 	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
-		if(strcmp((char*)root_directory.all_files[i].FILENAME, filename) != 0){
+		if(strcmp((char*)root_directory->all_files[i].FILENAME, filename) != 0){
 			return -1;
 		}
 	}
@@ -299,8 +306,8 @@ int fs_open(const char *filename)
 	//set file offset in fd_table to 0
 	//currentopenamount++
 	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
-		if(strcmp((char*)root_directory.all_files[i].FILENAME, filename) == 0){
-			temp_file_desc->cur_file = &(root_directory.all_files[i]);
+		if(strcmp((char*)root_directory->all_files[i].FILENAME, filename) == 0){
+			temp_file_desc->cur_file = &(root_directory->all_files[i]);
 			temp_file_desc->offset = 0;
 			current_open_amount++;
 			break;
