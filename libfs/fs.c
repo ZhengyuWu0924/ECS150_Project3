@@ -234,7 +234,7 @@ int fs_delete(const char *filename)
 {
 	int errFlag = -1;
 	if (filename == NULL) {
-		//printf("1st if\n");
+		printf("1st if\n");
 		errFlag = -1;
 	}
 
@@ -245,15 +245,8 @@ int fs_delete(const char *filename)
 		}
 	}
 	if(errFlag == -1){
-		//printf("error flag\n");
+		printf("error flag\n");
 		return -1;
-	}
-
-	// TO DO: if file @filename is currently open. Check in fd_table if file exists
-	for (int i = 0; i < FS_OPEN_MAX_COUNT; i++) {
-		if (strcmp((char*)fd_table[i]->cur_file->FILENAME, filename) == 0) {
-			return -1;
-		}
 	}
 
 	int file_index;
@@ -502,9 +495,6 @@ int fs_write(int fd, void *buf, size_t count) {
 			first_block_pos = root_directory->all_files[i].FILE_FIRST_BLOCK;
 			file_in_direc = i;
 			start_offset = cur_file_desc->offset;
-			// first_block_pos = cur_file_desc->cur_file->FILE_FIRST_BLOCK;
-			//printf("first block pos = %d\n", first_block_pos);
-			//printf("success got first block position\n");
 		}
 	}
 	// If the file is empty, assign data block and update FAT linking
@@ -619,8 +609,15 @@ int fs_read(int fd, void *buf, size_t count)
 			first_block_pos = root_directory->all_files[i].FILE_FIRST_BLOCK;
 		}
 	}
-
-	int remaining_to_read = count;
+	int remaining_to_read = 0;
+	int offset_subtractor = cur_file_desc->cur_file->FILE_SIZE - cur_file_desc->offset;
+	if (offset_subtractor < count) {
+		remaining_to_read = offset_subtractor;
+	}
+	else {
+		remaining_to_read = count;
+	}
+	
 	// BEGINNING
 	char* bounce = malloc(BLOCK_SIZE);
 	int buffer_offset = 0; // We are adding data in pieces, so we need to keep track of beginning of buffer
