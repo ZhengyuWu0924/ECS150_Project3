@@ -8,7 +8,6 @@
 #include "fs.h"
 
 #define FAT_EOC 0xFFFF
-
 struct SuperBlock{
 	uint8_t SIGNATURE[8]; // ECS150FS
 	uint16_t TOTAL_BLOCKS_COUNTS; // Total # of blocks
@@ -94,8 +93,11 @@ int fs_mount(const char *diskname)
 	FAT = malloc(super_block->FAT_BLOCK_COUNT * BLOCK_SIZE); // assign memory space for BLOCK_SIZE of table
 	//FAT[0] = FAT_EOC;
 	for(int i = 0; i < super_block->FAT_BLOCK_COUNT; i++){
-		//FAT[i] = 0;
-		block_read(i + 1, FAT + (i * (BLOCK_SIZE/sizeof(uint16_t)))); // WHAT DOES THIS MEAN?!
+		// each FAT is uint16_t, which means its length is 2 bytes (8 bits = 1 byte)
+		// BLOCK_SIZE = 4096, which means a block can take 4096 bytes, but we only store 2 bytes for FAT in a block
+		// To get into next FAT information, we work like an array, but the difference is
+		// we have to go to next FAT in block to take the information of the FAT
+		block_read(i + 1, FAT + (i * BLOCK_SIZE/2)); 
 	}
 	// for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
 	// 	root_directory->all_files[i].FILENAME[0] = '\0';
@@ -266,7 +268,7 @@ int fs_delete(const char *filename)
 	block_write(super_block->ROOT_DIRECTORY_BLOCK, root_directory);
 	//printf("after rdir write\n");
 	for(int i = 1; i <= super_block->FAT_BLOCK_COUNT; i++){
-		// block_write(i + 1, FAT + ((i-1) * (BLOCK_SIZE/2)));
+		block_write(i + 1, FAT + ((i-1) * (BLOCK_SIZE/2)));
 	}
 	return 0;
 }
@@ -472,43 +474,64 @@ int get_new_block_index() {
 
 int fs_write(int fd, void *buf, size_t count) {
 	// Error Management
+	printf("enter write\n");
 	if (fd >= FS_OPEN_MAX_COUNT || fd < 0) { // fd out of bounds
+		printf("bound error\n");
 		return -1;
 	}
 	if (fd_table[fd] == NULL) { // if file not currently open
+		printf("fille not open\n");
 		return -1;
 	}
 	if (count < 0) {
+		printf("no need read byte\n");
 		return -1;
 	}
 
 	// Get the file using fd_table
+	int first_block_pos = 0;
 	struct file_desc *cur_file_desc = fd_table[fd];
-
+	int file_in_direc = 0;
+	printf("getting file by fd_table\n");
+	// Get index position of the first data block of the file
+	for (int i = 0 ; i < FS_FILE_MAX_COUNT; i++){
+		if (root_directory->all_files[i].FILENAME == cur_file_desc->cur_file->FILENAME){ // found the file
+			first_block_pos = root_directory->all_files[i].FILE_FIRST_BLOCK;
+			file_in_direc = i;
+			// first_block_pos = cur_file_desc->cur_file->FILE_FIRST_BLOCK;
+			printf("first block pos = %d\n", first_block_pos);
+			printf("success got first block position\n");
+		}
+	}
 	// If the file is empty, assign data block and update FAT linking
-	if (cur_file_desc->cur_file->FILE_FIRST_BLOCK == FAT_EOC) {
+	if (root_directory->all_files[file_in_direc].FILE_FIRST_BLOCK == FAT_EOC) {
+		printf("if file is empty\n");
 		int new_block_index = get_new_block_index();
 		if (new_block_index == -1){
 			return 0; // No more blocks available, so we couldn't write any bytes. Therefore, we wrote 0 bytes. Return 0.
 		}
 		cur_file_desc->cur_file->FILE_FIRST_BLOCK = new_block_index;
+		first_block_pos = new_block_index;
+		root_directory->all_files[file_in_direc].FILE_FIRST_BLOCK = first_block_pos;
 		FAT[new_block_index] = FAT_EOC;
 	}
+	printf("after detect empty file\n");
 
-	// Get index position of the first data block of the file
-	int first_block_pos = 0;
-	for (int i = 0 ; i < FS_FILE_MAX_COUNT; i++){
-		if (root_directory->all_files[i].FILENAME == cur_file_desc->cur_file->FILENAME){ // found the file
-			first_block_pos = root_directory->all_files[i].FILE_FIRST_BLOCK;
-		}
-	}
+	
+	printf("after getting first block pos\n");
+	
 
 	int remaining_to_write = count;
 	char* bounce = malloc(BLOCK_SIZE);
 	int buffer_offset = 0; // Keep track of how much of the buffer we already wrote into disk
+	printf("alloc bounce \n");
 	while (remaining_to_write > 0){
 		int target_index = index_containing_offset(cur_file_desc, first_block_pos); // block index which contains the offset
+		printf("target index = %d\n", target_index);
+		
 		int block_offset = cur_file_desc->offset % BLOCK_SIZE; // We know how far in we are into this block
+		printf("block offset before if = %d\n", block_offset);
+		printf("cur_file_desc->offset %d\n", cur_file_desc->offset);
 		block_read(target_index, bounce); // Read entire block into bounce
 
 		// 3 cases 
@@ -516,17 +539,25 @@ int fs_write(int fd, void *buf, size_t count) {
 		//	2. if (block_offset + remaining_to_write >= BLOCK SIZE) ==> Can't fit into block. 
 
 		if (block_offset + remaining_to_write < BLOCK_SIZE){ // We can fit the data into this block
+			printf("first if in while\n");
 			memcpy(bounce+block_offset, buf+buffer_offset, remaining_to_write);
+			// memcpy(buf + buffer_offset, bounce + block_offset, remaining_to_write);
+			printf("remaining to write = %d\n", remaining_to_write);
 			cur_file_desc->offset += remaining_to_write;
+			printf("offset = %d", cur_file_desc->offset);
 			buffer_offset += remaining_to_write;
+			printf("buffer_offset = %d\n", buffer_offset);
 			remaining_to_write = 0; // Wrote the small buf case into block. Nothing more to read.
+			
 			block_write(target_index, bounce);
 		}
 		// Can't fit entire data in the block. Fit as much as we can in this block, then create a new data_block, do linking,
 		// then put remaining into that block
 		else if (block_offset + remaining_to_write > BLOCK_SIZE) { 
+			printf("second if in while\n");
 			int block_left = BLOCK_SIZE - block_offset;
-			memcpy(bounce+block_offset, buf, block_left);
+			// memcpy(bounce+block_offset, buf, block_left);
+			memcpy(buf + buffer_offset, bounce + block_offset, block_left);
 			cur_file_desc->offset += block_left;
 			buffer_offset += block_left;
 			remaining_to_write = remaining_to_write - block_left;
@@ -543,6 +574,7 @@ int fs_write(int fd, void *buf, size_t count) {
 
 		}
 		else if (block_offset + remaining_to_write == BLOCK_SIZE){
+			printf("third if in while\n");
 			memcpy(bounce+block_offset, buf+buffer_offset, remaining_to_write);
 			cur_file_desc->offset += remaining_to_write;
 			buffer_offset += remaining_to_write;
@@ -551,7 +583,13 @@ int fs_write(int fd, void *buf, size_t count) {
 
 		}
 	}
+	// root_directory->all_files[file_in_direc].FILE_SIZE += buffer_offset;
+	printf("after whole loop\n");
 	block_write(super_block->ROOT_DIRECTORY_BLOCK, root_directory);
+	for(int i = 0; i < super_block->FAT_BLOCK_COUNT; i++){
+		block_write(i+1, FAT + i * (BLOCK_SIZE/2));
+	}
+	printf("after final block write\n");
 	return buffer_offset;
 }
 
