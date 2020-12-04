@@ -492,12 +492,14 @@ int fs_write(int fd, void *buf, size_t count) {
 	int first_block_pos = 0;
 	struct file_desc *cur_file_desc = fd_table[fd];
 	int file_in_direc = 0;
+	int start_offset = 0;
 	printf("getting file by fd_table\n");
 	// Get index position of the first data block of the file
 	for (int i = 0 ; i < FS_FILE_MAX_COUNT; i++){
 		if (root_directory->all_files[i].FILENAME == cur_file_desc->cur_file->FILENAME){ // found the file
 			first_block_pos = root_directory->all_files[i].FILE_FIRST_BLOCK;
 			file_in_direc = i;
+			start_offset = cur_file_desc->offset;
 			// first_block_pos = cur_file_desc->cur_file->FILE_FIRST_BLOCK;
 			printf("first block pos = %d\n", first_block_pos);
 			printf("success got first block position\n");
@@ -556,8 +558,8 @@ int fs_write(int fd, void *buf, size_t count) {
 		else if (block_offset + remaining_to_write > BLOCK_SIZE) { 
 			printf("second if in while\n");
 			int block_left = BLOCK_SIZE - block_offset;
-			// memcpy(bounce+block_offset, buf, block_left);
-			memcpy(buf + buffer_offset, bounce + block_offset, block_left);
+			memcpy(bounce+block_offset, buf+buffer_offset, block_left);
+			// memcpy(buf + buffer_offset, bounce + block_offset, block_left);
 			cur_file_desc->offset += block_left;
 			buffer_offset += block_left;
 			remaining_to_write = remaining_to_write - block_left;
@@ -582,6 +584,12 @@ int fs_write(int fd, void *buf, size_t count) {
 			block_write(target_index, bounce);
 
 		}
+	}
+	if(root_directory->all_files[file_in_direc].FILE_SIZE < buffer_offset + start_offset){
+		// root_directory->all_files[file_in_direc].FILE_SIZE += ; 
+		root_directory->all_files[file_in_direc].FILE_SIZE = buffer_offset + start_offset;
+	} else if (root_directory->all_files[file_in_direc].FILE_SIZE >= buffer_offset + start_offset){
+		root_directory->all_files[file_in_direc].FILE_SIZE = root_directory->all_files[file_in_direc].FILE_SIZE;
 	}
 	// root_directory->all_files[file_in_direc].FILE_SIZE += buffer_offset;
 	printf("after whole loop\n");
@@ -643,76 +651,5 @@ int fs_read(int fd, void *buf, size_t count)
 		}
 	}
 	
-	return count; // CHECK THIS
+	return count; 
 }
-
-
-// int fs_write(int fd, void *buf, size_t count)
-// {
-// 	// Error Management
-// 	// fd invalid out of bounds
-// 	if(fd >= FS_OPEN_MAX_COUNT){
-// 		return -1;
-// 	}
-// 	// not currently open
-// 	if(fd_table[fd] == NULL){
-// 		return -1;
-// 	}
-// 	int first_block_pos = 0;
-// 	struct file_desc *cur_file_desc = fd_table[fd]; //file & offset
-// 	for(int i = 0; i < FS_FILE_MAX_COUNT; i++){
-// 		if(root_directory->all_files[i].FILENAME == cur_file_desc->cur_file->FILENAME){
-// 			first_block_pos = root_directory->all_files[i].FILE_FIRST_BLOCK;
-// 		}
-// 	}
-// 	int data_record = 0;
-// 	char* bounce = malloc(BLOCK_SIZE); // bounce block to transit data
-
-// 	int remaining_to_read = count; // data to be written
-// 	// struct file_desc *cur_file_desc = fd_table[fd]; // current file to be written
-// 	int size_to_write = 0;
-// 	int buffer_offset = 0;
-// 	while(remaining_to_read > 0){
-// 		int target_block = index_containing_offset(cur_file_desc, first_block_pos); // find the block the file offset in
-// 		int block_offset = cur_file_desc->offset % BLOCK_SIZE; // get the position in the block 
-// 		block_read(target_block, bounce);
-// 		if(block_offset + remaining_to_read <= cur_file_desc->cur_file->FILE_SIZE){ // Current data + things to be written can exactly filled a block
-// 		/**
-// 		 * 	memcpy(buf + buffer_offset, bounce + block_offset, remaining_to_read);
-// 			cur_file_desc->offset += remaining_to_read;
-// 			buffer_offset += remaining_to_read;
-// 			remaining_to_read = 0; // Ensures that the loop won't run again
-			
-// 		 * */
-// 			size_to_write = remaining_to_read;
-// 			// block_read(target_block + block_offset, bounce); // read from current index in the block to the bounce
-// 			memcpy(bounce + block_offset, buf + buffer_offset, size_to_write); // copy remaining bytes of data from buf to bounce start at [current index]
-			
-// 			block_write(target_block + block_offset, bounce); // write data start at block_offset in bounce;
-// 			data_record += size_to_write;
-// 			remaining_to_read = 0;
-// 		} else if (block_offset + remaining_to_read > cur_file_desc->cur_file->FILE_SIZE){
-// 			int minBytes = 0;
-// 			if(remaining_to_read > cur_file_desc->cur_file->FILE_SIZE){
-// 				minBytes = cur_file_desc->cur_file->FILE_SIZE;
-// 			} else {
-// 				minBytes = remaining_to_read;
-// 			}
-// 			size_to_write = minBytes;
-// 			// block_read(target_block + block_offset, bounce);
-// 			memcpy(bounce + block_offset, buf + buffer_offset, size_to_write);
-// 			block_write(target_block + block_offset, bounce);
-// 			data_record += size_to_write;
-// 			remaining_to_read -= size_to_write;
-// 		}
-// 	}
-// 	return data_record;
-// }
-
-
-
-
-
-
-
-
